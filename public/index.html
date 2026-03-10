@@ -1,0 +1,90 @@
+﻿<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generador de Graduados</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      href="https://fonts.cdnfonts.com/css/ananda-black-personal-use"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main class="app">
+      <section class="header">
+        <h1 style="text-transform: uppercase">
+          Generador de Imágenes de Graduados
+        </h1>
+        <p>
+          Formato vertical para WhatsApp/Facebook con datos desde base de datos.
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Registro de Estudiante</h2>
+          <form id="studentForm">
+            <label>
+              Nombre del postulante
+              <input type="text" id="fullName" required />
+            </label>
+
+            <label>
+              Modalidad de graduación
+              <input
+                type="text"
+                id="graduationMode"
+                placeholder="Proyecto de grado, excelencia..."
+                required
+              />
+            </label>
+
+            <label>
+              Fecha de graduación
+              <input type="date" id="graduationDate" required />
+            </label>
+
+            <label>
+              Foto (avatar)
+              <input type="file" id="avatar" accept="image/*" />
+            </label>
+
+            <div class="actions">
+              <button type="submit">Guardar en Base de Datos</button>
+              <button type="button" class="secondary" id="clearForm">
+                Limpiar
+              </button>
+            </div>
+            <p id="formStatus" class="status"></p>
+          </form>
+
+          <div class="list" id="studentList"></div>
+        </article>
+
+        <article class="card">
+          <h2>Vista Previa y Descarga</h2>
+          <label>
+            Estudiante seleccionado
+            <select id="studentSelect">
+              <option value="">Seleccione...</option>
+            </select>
+          </label>
+
+          <div class="preview-wrap">
+            <canvas id="posterCanvas" width="1080" height="1920"></canvas>
+          </div>
+
+          <div class="actions" style="margin-top: 12px">
+            <button id="downloadBtn" type="button">Descargar PNG</button>
+            <button id="refreshBtn" type="button" class="secondary">
+              Recargar Lista
+            </button>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
