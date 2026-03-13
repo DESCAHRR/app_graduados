@@ -7,6 +7,24 @@ const graduationDateEl = document.getElementById("graduationDate");
 const avatarEl = document.getElementById("avatar");
 const clearFormBtn = document.getElementById("clearForm");
 const formStatus = document.getElementById("formStatus");
+const graduationModeOptions = [
+  "Proyecto de Grado",
+  "Tesis",
+  "Examen de Grado",
+  "Trabajo Dirigido",
+  "Excelencia",
+  "Via Diplomado"
+];
+
+function fillGraduationModes() {
+  graduationModeEl.innerHTML = '<option value="">Seleccione...</option>';
+  graduationModeOptions.forEach((mode) => {
+    const option = document.createElement("option");
+    option.value = mode;
+    option.textContent = mode;
+    graduationModeEl.appendChild(option);
+  });
+}
 
 const studentSelect = document.getElementById("studentSelect");
 const studentList = document.getElementById("studentList");
@@ -610,6 +628,7 @@ refreshBtn.addEventListener("click", async () => {
 
 (async function init() {
   await ensureFontsLoaded();
+  fillGraduationModes();
   await drawPlaceholder();
   try {
     await reloadData();
@@ -617,6 +636,10 @@ refreshBtn.addEventListener("click", async () => {
     setStatus("No se pudo conectar con el servidor.", "error");
   }
 })();
+
+
+
+
 
 
 
