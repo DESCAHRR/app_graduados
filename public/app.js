@@ -608,11 +608,12 @@ refreshBtn.addEventListener("click", async () => {
   await reloadData();
 });
 
-(async function init() {\n  await ensureFontsLoaded();\n  await drawPlaceholder();
+(async function init() {`n  await ensureFontsLoaded();`n  await drawPlaceholder();
   try {
     await reloadData();
   } catch {
     setStatus("No se pudo conectar con el servidor.", "error");
   }
 })();
+
 
