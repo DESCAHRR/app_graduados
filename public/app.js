@@ -51,7 +51,14 @@ function setStatus(message, type = "ok") {
   formStatus.textContent = message;
   formStatus.className = `status ${type}`;
 }
-
+async function ensureFontsLoaded() {
+  if (!document.fonts || !document.fonts.load) return;
+  try {
+    await document.fonts.load('700 32px "Ananda Black Personal Use"');
+  } catch {
+    // Ignore font load errors and fall back to default fonts.
+  }
+}
 async function fetchStudents() {
   const res = await fetch(API);
   if (!res.ok) throw new Error("No se pudo cargar estudiantes");
@@ -601,11 +608,11 @@ refreshBtn.addEventListener("click", async () => {
   await reloadData();
 });
 
-(async function init() {
-  await drawPlaceholder();
+(async function init() {\n  await ensureFontsLoaded();\n  await drawPlaceholder();
   try {
     await reloadData();
   } catch {
     setStatus("No se pudo conectar con el servidor.", "error");
   }
 })();
+
