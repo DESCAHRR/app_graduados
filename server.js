@@ -44,7 +44,8 @@ async function uploadAvatar(file) {
     .upload(key, file.buffer, { contentType: file.mimetype, upsert: false });
 
   if (uploadError) {
-    throw new Error('No se pudo subir el avatar.');
+    console.error('Supabase upload error:', uploadError);
+    throw new Error(uploadError.message || 'No se pudo subir el avatar.');
   }
 
   const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(key);
