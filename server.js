@@ -1,149 +1,184 @@
 ﻿const express = require('express');
 const path = require('path');
-const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
-const uploadsDir = process.env.UPLOADS_DIR || path.join(dataDir, 'uploads');
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'avatars';
 
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Faltan variables SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.');
+}
 
-const dbPath = path.join(dataDir, 'graduados.db');
-const db = new sqlite3.Database(dbPath);
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS students (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_name TEXT NOT NULL,
-      graduation_mode TEXT NOT NULL,
-      graduation_date TEXT NOT NULL,
-      avatar_path TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-});
-
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, uploadsDir),
-  filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
-    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExt}`);
-  }
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false }
 });
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
 app.use(express.json());
-app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/students', (_, res) => {
-  db.all('SELECT * FROM students ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Error al listar estudiantes.' });
-    res.json(rows);
-  });
+function safeFileName(originalName) {
+  const ext = path.extname(originalName || '').toLowerCase() || '.jpg';
+  const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
+  const base = path.basename(originalName || 'avatar', ext).replace(/[^a-zA-Z0-9_-]/g, '');
+  return `${base || 'avatar'}${safeExt}`;
+}
+
+async function uploadAvatar(file) {
+  if (!file) return { publicUrl: null, key: null };
+
+  const fileName = safeFileName(file.originalname);
+  const key = `${Date.now()}-${Math.round(Math.random() * 1e9)}-${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(SUPABASE_BUCKET)
+    .upload(key, file.buffer, { contentType: file.mimetype, upsert: false });
+
+  if (uploadError) {
+    throw new Error('No se pudo subir el avatar.');
+  }
+
+  const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(key);
+  return { publicUrl: data.publicUrl, key };
+}
+
+async function removeAvatar(key) {
+  if (!key) return;
+  await supabase.storage.from(SUPABASE_BUCKET).remove([key]);
+}
+
+app.get('/api/students', async (_, res) => {
+  const { data, error } = await supabase
+    .from('students')
+    .select('*')
+    .order('id', { ascending: false });
+
+  if (error) return res.status(500).json({ error: 'Error al listar estudiantes.' });
+  res.json(data || []);
 });
 
-app.get('/api/students/:id', (req, res) => {
-  db.get('SELECT * FROM students WHERE id = ?', [req.params.id], (err, row) => {
-    if (err) return res.status(500).json({ error: 'Error al obtener estudiante.' });
-    if (!row) return res.status(404).json({ error: 'Estudiante no encontrado.' });
-    res.json(row);
-  });
+app.get('/api/students/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalido.' });
+
+  const { data, error } = await supabase
+    .from('students')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) return res.status(404).json({ error: 'Estudiante no encontrado.' });
+  res.json(data);
 });
 
-app.post('/api/students', upload.single('avatar'), (req, res) => {
+app.post('/api/students', upload.single('avatar'), async (req, res) => {
   const { full_name, graduation_mode, graduation_date } = req.body;
 
   if (!full_name || !graduation_mode || !graduation_date) {
     return res.status(400).json({ error: 'Faltan datos obligatorios.' });
   }
 
-  const avatar_path = req.file ? `/uploads/${req.file.filename}` : null;
+  try {
+    const avatar = await uploadAvatar(req.file);
 
-  db.run(
-    `INSERT INTO students (full_name, graduation_mode, graduation_date, avatar_path)
-     VALUES (?, ?, ?, ?)`,
-    [full_name.trim(), graduation_mode.trim(), graduation_date, avatar_path],
-    function onInsert(err) {
-      if (err) return res.status(500).json({ error: 'No se pudo guardar estudiante.' });
-      db.get('SELECT * FROM students WHERE id = ?', [this.lastID], (getErr, row) => {
-        if (getErr) return res.status(500).json({ error: 'Guardado parcial.' });
-        res.status(201).json(row);
-      });
-    }
-  );
+    const { data, error } = await supabase
+      .from('students')
+      .insert({
+        full_name: full_name.trim(),
+        graduation_mode: graduation_mode.trim(),
+        graduation_date,
+        avatar_path: avatar.publicUrl,
+        avatar_key: avatar.key
+      })
+      .select('*')
+      .single();
+
+    if (error) return res.status(500).json({ error: 'No se pudo guardar estudiante.' });
+    res.status(201).json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error al subir avatar.' });
+  }
 });
 
-app.put('/api/students/:id', upload.single('avatar'), (req, res) => {
+app.put('/api/students/:id', upload.single('avatar'), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalido.' });
+
   const { full_name, graduation_mode, graduation_date } = req.body;
-  const id = req.params.id;
 
-  db.get('SELECT * FROM students WHERE id = ?', [id], (findErr, current) => {
-    if (findErr) return res.status(500).json({ error: 'Error al actualizar.' });
-    if (!current) return res.status(404).json({ error: 'Estudiante no encontrado.' });
+  const { data: current, error: findError } = await supabase
+    .from('students')
+    .select('*')
+    .eq('id', id)
+    .single();
 
-    const newAvatarPath = req.file ? `/uploads/${req.file.filename}` : current.avatar_path;
+  if (findError || !current) {
+    return res.status(404).json({ error: 'Estudiante no encontrado.' });
+  }
 
-    db.run(
-      `UPDATE students
-       SET full_name = ?, graduation_mode = ?, graduation_date = ?, avatar_path = ?
-       WHERE id = ?`,
-      [
-        (full_name || current.full_name).trim(),
-        (graduation_mode || current.graduation_mode).trim(),
-        graduation_date || current.graduation_date,
-        newAvatarPath,
-        id
-      ],
-      (updateErr) => {
-        if (updateErr) return res.status(500).json({ error: 'No se pudo actualizar.' });
+  try {
+    let avatarPath = current.avatar_path;
+    let avatarKey = current.avatar_key;
 
-        if (req.file && current.avatar_path) {
-          const oldPath = path.join(
-            uploadsDir,
-            path.basename(current.avatar_path)
-          );
-          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-        }
+    if (req.file) {
+      const avatar = await uploadAvatar(req.file);
+      avatarPath = avatar.publicUrl;
+      avatarKey = avatar.key;
+      if (current.avatar_key) await removeAvatar(current.avatar_key);
+    }
 
-        db.get('SELECT * FROM students WHERE id = ?', [id], (getErr, row) => {
-          if (getErr) return res.status(500).json({ error: 'Actualizado parcial.' });
-          res.json(row);
-        });
-      }
-    );
-  });
+    const { data, error } = await supabase
+      .from('students')
+      .update({
+        full_name: (full_name || current.full_name).trim(),
+        graduation_mode: (graduation_mode || current.graduation_mode).trim(),
+        graduation_date: graduation_date || current.graduation_date,
+        avatar_path: avatarPath,
+        avatar_key: avatarKey
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) return res.status(500).json({ error: 'No se pudo actualizar.' });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error al actualizar.' });
+  }
 });
 
-app.delete('/api/students/:id', (req, res) => {
-  const id = req.params.id;
+app.delete('/api/students/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID invalido.' });
 
-  db.get('SELECT * FROM students WHERE id = ?', [id], (findErr, row) => {
-    if (findErr) return res.status(500).json({ error: 'Error al eliminar.' });
-    if (!row) return res.status(404).json({ error: 'Estudiante no encontrado.' });
+  const { data: current, error: findError } = await supabase
+    .from('students')
+    .select('*')
+    .eq('id', id)
+    .single();
 
-    db.run('DELETE FROM students WHERE id = ?', [id], (deleteErr) => {
-      if (deleteErr) return res.status(500).json({ error: 'No se pudo eliminar.' });
+  if (findError || !current) {
+    return res.status(404).json({ error: 'Estudiante no encontrado.' });
+  }
 
-      if (row.avatar_path) {
-        const avatarFile = path.join(uploadsDir, path.basename(row.avatar_path));
-        if (fs.existsSync(avatarFile)) fs.unlinkSync(avatarFile);
-      }
+  const { error: deleteError } = await supabase
+    .from('students')
+    .delete()
+    .eq('id', id);
 
-      res.json({ ok: true });
-    });
-  });
+  if (deleteError) return res.status(500).json({ error: 'No se pudo eliminar.' });
+
+  if (current.avatar_key) await removeAvatar(current.avatar_key);
+  res.json({ ok: true });
 });
 
 app.get('*', (req, res) => {
