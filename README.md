@@ -65,3 +65,14 @@ Abrir en navegador:
 
 - Los avatars se guardan en Supabase Storage, no en el servidor.
 - La base de datos es persistente gracias a Supabase.
+
+## Autenticacion basica (opcional)
+
+Puedes proteger toda la app con usuario y contrasena HTTP Basic.
+
+Variables:
+
+- `AUTH_USER`
+- `AUTH_PASS`
+
+Si no defines estas variables, la app queda sin autenticacion.

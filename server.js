@@ -9,6 +9,8 @@ const PORT = process.env.PORT || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || 'avatars';
+const AUTH_USER = process.env.AUTH_USER;
+const AUTH_PASS = process.env.AUTH_PASS;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('Faltan variables SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.');
@@ -24,6 +26,26 @@ const upload = multer({
 });
 
 app.use(express.json());
+
+app.use((req, res, next) => {
+  if (!AUTH_USER || !AUTH_PASS) return next();
+
+  const header = req.headers.authorization || '';
+  const [type, encoded] = header.split(' ');
+  if (type !== 'Basic' || !encoded) {
+    res.set('WWW-Authenticate', 'Basic realm="graduados"');
+    return res.status(401).send('Autenticacion requerida');
+  }
+
+  const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  const [user, pass] = decoded.split(':');
+
+  if (user === AUTH_USER && pass === AUTH_PASS) return next();
+
+  res.set('WWW-Authenticate', 'Basic realm="graduados"');
+  return res.status(401).send('Credenciales invalidas');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 function safeFileName(originalName) {
